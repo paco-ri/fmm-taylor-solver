@@ -4,4 +4,4 @@
 *.txt
 *.m
 *.asv
-!.gitignore
+*~
