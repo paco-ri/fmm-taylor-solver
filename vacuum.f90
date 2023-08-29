@@ -1162,8 +1162,9 @@ program vacuum
     complex *16 ima
     data ima/(0.0d0,1.0d0)/
 
+    ! if the number of sample points is too low, get a seg fault
     igeomtype = 4 ! keep at 4 for an axisymmetric geometry
-    norder = 8 ! if <= 7, seg fault. if >= 10, blow up
+    norder = 8 
     npols = (norder+1)*(norder+2)/2
     ifplot = 0
     fname = 'torus.vtk'
@@ -1173,7 +1174,7 @@ program vacuum
         npatches = 12*(4**ipars(1))
     endif
     if(igeomtype.eq.2.or.igeomtype.eq.4) then
-        ipars(1) = 10 ! cannot be <= 4 for some reason
+        ipars(1) = 6
         if(igeomtype.eq.2) ipars(1) = 10
         ipars(2) = ipars(1)*3
         npatches = 2*ipars(1)*ipars(2)
@@ -1237,7 +1238,7 @@ program vacuum
         dmH(1,i) = dmHreal(1,i) + ima*dmHimag(1,i)
         sum = sum + abs(dmH(1,i))
     enddo
-    print *,sum
+    print *,"dmH",sum
 
     ! do i = 1,npts
     !     nxmH(1,i) = srcvals(11,i)*mH(3,i) - srcvals(12,i)*mH(2,i) 
@@ -1348,7 +1349,7 @@ program vacuum
             Bdotn(i) = Bdotn(i) + B(j,i)*srcvals(j+9,i)
         enddo 
     enddo
-    open(19,file="Bdotnipars10.txt")
+    open(19,file="Bdotn.txt")
     do i = 1,npts
         write(19,*) Bdotn(i)
     enddo
