@@ -1163,22 +1163,17 @@ program vacuum
     data ima/(0.0d0,1.0d0)/
 
     ! if the number of sample points is too low, get a seg fault
-    igeomtype = 4 ! keep at 4 for an axisymmetric geometry
+    igeomtype = 5 ! set to 4 for axisymmetric geometry
     norder = 8 
     npols = (norder+1)*(norder+2)/2
     ifplot = 0
     fname = 'torus.vtk'
 
-    if(igeomtype.eq.1) then
-        ipars(1) = 2
-        npatches = 12*(4**ipars(1))
-    endif
-    if(igeomtype.eq.2.or.igeomtype.eq.4) then
-        ipars(1) = 6
-        if(igeomtype.eq.2) ipars(1) = 10
-        ipars(2) = ipars(1)*3
-        npatches = 2*ipars(1)*ipars(2)
-    endif
+    ipars(1) = 6
+    if(igeomtype.eq.2) ipars(1) = 10
+    ipars(2) = ipars(1)*3
+    npatches = 2*ipars(1)*ipars(2)
+    
     npts = npols*npatches
     print *,"npts = ",npts
 
@@ -1192,26 +1187,8 @@ program vacuum
 
     allocate(srccoefs(9,npts),srcvals(12,npts),surfdivf(npts))
 
-    if(igeomtype.eq.1) then
-        open(11, file="sphsrccoefs.txt")
-        read(11,*) srccoefs
-        close(11)
-        open(12, file="sphsrcvals.txt")
-        read(12,*) srcvals
-        close(12)
-    endif
-    if(igeomtype.eq.2) then 
-        open(11, file="axisrccoefs.txt")
-        read(11,*) srccoefs
-        close(11)
-        open(12, file="axisrcvals.txt")
-        read(12,*) srcvals
-        close(12)
-    endif
-    if(igeomtype.eq.4) then
-        call setup_geom_vacuum(4,norder,npatches,ipars,srcvals,srccoefs,ifplot,&
-            fname)
-    endif
+    call setup_geom_vacuum(igeomtype,norder,npatches,ipars,srcvals,srccoefs,&
+        ifplot,fname)
     
     allocate(mH(3,npts),mHcomps(1,2,npts),nxmH(3,npts))
     call axi_surf_harm_field(npts,srcvals,mH,mHcomps)
