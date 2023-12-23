@@ -4,4 +4,7 @@
 *.txt
 *.m
 *.asv
+*.dat
+*.mat
+makefile*
 *~

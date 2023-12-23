@@ -23,32 +23,33 @@ subroutine lpcomp_virtualcasing_addsub_complex(npatches, norders, ixyzs, &
     real *8 eps
     real *8 srccoefs(9,npts),srcvals(12,npts),targs(ndtarg,ntarg)
     real *8 wnear(nquad,3),srcover(12,nptso),whtsover(nptso)
-    real *8 curljre(3,npts),curljim(3,npts),gradrhore(3,npts),gradrhoim(3,npts)
+    real *8 curljre(3,ntarg),curljim(3,ntarg)
+    real *8 gradrhore(3,ntarg),gradrhoim(3,ntarg)
 
-    complex *16 rjvec(3,npts), rho(npts), curlj(3,npts), gradrho(3,npts)
+    complex *16 rjvec(3,npts), rho(npts), curlj(3,ntarg), gradrho(3,ntarg)
     complex *16 ima
     data ima/(0.0d0,1.0d0)/
 
     ! real part
-    call lpcomp_virtualcasing_addsub(npatches, norders, ixyzs, &
-    iptype, npts, srccoefs, srcvals, ndtarg, ntarg, targs, &
-    eps, nnz, row_ptr, col_ind, iquad, nquad, wnear, real(rjvec), real(rho), &
-    novers, nptso, ixyzso, srcover, whtsover, curljre, gradrhore)
+    call lpcomp_virtualcasing_addsub(npatches,norders,ixyzs,&
+        iptype,npts,srccoefs,srcvals,ndtarg,ntarg,targs,&
+        eps,nnz,row_ptr,col_ind,iquad,nquad,wnear,real(rjvec),real(rho),&
+        novers,nptso,ixyzso,srcover,whtsover,curljre,gradrhore)
     ! imaginary part
-    call lpcomp_virtualcasing_addsub(npatches, norders, ixyzs, &
-    iptype, npts, srccoefs, srcvals, ndtarg, ntarg, targs, &
-    eps, nnz, row_ptr, col_ind, iquad, nquad, wnear, aimag(rjvec), aimag(rho), &
-    novers, nptso, ixyzso, srcover, whtsover, curljim, gradrhoim)
+    call lpcomp_virtualcasing_addsub(npatches,norders,ixyzs,&
+        iptype,npts,srccoefs,srcvals,ndtarg,ntarg,targs,&
+        eps,nnz,row_ptr,col_ind,iquad,nquad,wnear,aimag(rjvec),aimag(rho),&
+        novers,nptso,ixyzso,srcover,whtsover,curljim,gradrhoim)
     ! $OMP PARALLEL DO DEFAULT(SHARED)
     do i = 1,3
-        do j = 1,npts
+        do j = 1,ntarg
             curlj(i,j) = curljre(i,j) + ima*curljim(i,j)
         enddo
     enddo
     ! $OMP END PARALLEL DO 
     ! $OMP PARALLEL DO DEFAULT(SHARED)
     do i = 1,3
-        do j = 1,npts
+        do j = 1,ntarg
             gradrho(i,j) = gradrhore(i,j) + ima*gradrhoim(i,j)
         enddo
     enddo
@@ -84,8 +85,8 @@ subroutine lpcomp_lap_comb_dir_addsub_complex_vec(nd, npatches, norders, ixyzs,&
     data ima/(0.0d0,1.0d0)/
 
     do i = 1,nd
-        pot_real_temp = 0
-        pot_imag_temp = 0
+        ! pot_real_temp = 0
+        ! pot_imag_temp = 0
         call lpcomp_lap_comb_dir_addsub(npatches,norders,ixyzs,&
             iptype,npts,srccoefs,srcvals,ndtarg,ntarg,targs,eps,&
             dpars,nnz,row_ptr,col_ind,iquad,nquad,wnear,real(sigma(i,1:npts)),&
@@ -102,9 +103,42 @@ subroutine lpcomp_lap_comb_dir_addsub_complex_vec(nd, npatches, norders, ixyzs,&
     return
 end subroutine lpcomp_lap_comb_dir_addsub_complex_vec
 
-subroutine taylor_vaccuum_solver(npatches, norders, ixyzs, iptype, npts, &
-    srccoefs, srcvals, ipars, eps, numit, flux, eps_gmres, niter, errs, rres, &
-    sigma, alpha, B, fluxcheck)
+subroutine fun_surf_interp_complex(nd,npatches,norders,ixyzs,iptype,npts,&
+    f,na,apatches,auv,finterp)
+    !
+    ! Wrapper for virtual-casing/src/surf_routs.f90:fun_surf_interp() that 
+    ! handles complex I/O
+    !
+
+    implicit none
+    integer, intent(in) :: nd,npatches,npts
+    integer, intent(in) :: norders(npatches),ixyzs(npatches+1),iptype(npatches)
+    complex *16, intent(in) :: f(nd,npts)
+    integer, intent(in) :: na,apatches(na)
+    real *8, intent(in) :: auv(2,na)
+    complex *16, intent(out) :: finterp(nd,na)
+
+    real *8 frealintp(nd,na),fimagintp(nd,na)
+    integer i,j
+
+    complex *16 ima
+    data ima/(0.0d0,1.0d0)/
+
+    call fun_surf_interp(nd,npatches,norders,ixyzs,iptype,npts,real(f),na,&
+        apatches,auv,frealintp)
+    call fun_surf_interp(nd,npatches,norders,ixyzs,iptype,npts,aimag(f),na,&
+        apatches,auv,fimagintp)
+    do i=1,na
+        do j=1,nd
+            finterp(j,i) = frealintp(j,i) + ima*fimagintp(j,i)
+        enddo
+    enddo
+    return
+end subroutine fun_surf_interp_complex
+
+subroutine taylor_vaccuum_solver(npatches,norders,ixyzs,iptype,npts,&
+    srccoefs,srcvals,ipars,eps,numit,flux,eps_gmres,solvetest,B0,&
+    niter1,niter2,errs1,errs2,rres1,rres2,sigma,alpha,B)
     ! 
     ! Solves the Taylor state BIE 
     !     
@@ -195,19 +229,38 @@ subroutine taylor_vaccuum_solver(npatches, norders, ixyzs, iptype, npts, &
     !   eps_gmres - real *8
     !     gmres tolerance requested
     ! 
+    !   solvetest - integer
+    !     if 0, use the solver as intended
+    !     if 1, test the solver using a reference field B0 (see 4.3 in [1])
+    ! 
+    !   B0 - complex *16(3,npts)
+    !     reference field for testing (see 4.3 in [1])
+    ! 
     ! ==========================================================================
     !
     ! Output:
-    !   niter - integer
-    !     number of gmres iterations required for relative residual
+    !   niter1 - integer
+    !     number of GMRES iterations required for relative residual when 
+    !       computing A^-1 B0 . n
+    !     ignore this if solvetest = 0
+    ! 
+    !   niter2 - integer
+    !     number of GMRES iterations required for relative residual when
+    !       computing A^-1 u_1 (see 4.3.1 in [1])
     !      
-    !   errs(1:iter) - relative residual as a function of iteration
-    !     number
+    !   errs1 - real *8(numit+1)
+    !     relative residual as a function of iteration number for first GMRES
+    ! 
+    !   errs2 - real *8(numit+1)
+    !     relative residual as a function of iteration number for second GMRES
     !
-    !   rres - real *8
-    !     relative residual for computed solution
+    !   rres1 - real *8
+    !     relative residual for computed solution for first GMRES
+    ! 
+    !   rres2 - real *8
+    !     relative residual for computed solution for second GMRES
     !          
-    !   sigma - copmlex *16(npts)
+    !   sigma - complex *16(npts)
     !     solution density 
     !   
     !   alpha - complex *16
@@ -220,74 +273,85 @@ subroutine taylor_vaccuum_solver(npatches, norders, ixyzs, iptype, npts, &
     !     computed flux, for testing purposes
     !
     implicit none
-    integer npatches,norder,npols,npts
-    integer ifinout
-    integer norders(npatches),ixyzs(npatches+1)
-    integer iptype(npatches)
-    real *8 srccoefs(9,npts),srcvals(12,npts),eps,eps_gmres
-    real *8 dpars(2)
-    real *8 flux
-    complex *16 soln(npts)
 
-    real *8, allocatable :: targs(:,:)
-    integer, allocatable :: ipatch_id(:)
-    real *8, allocatable :: uvs_targ(:,:)
+    ! constants
+    real *8 done,pi
+
+    ! surface discretization
     integer ndtarg,ntarg
-
-    real *8 errs(numit+1)
-    real *8 rres,eps2
-    integer niter
-
-    integer nover,npolso,nptso
-    integer nnz,nquad
-    integer, allocatable :: row_ptr(:),col_ind(:),iquad(:)
-    real *8, allocatable :: wnear(:,:)
-
-    real *8, allocatable :: srcover(:,:),wover(:)
-    integer, allocatable :: ixyzso(:),novers(:)
+    real *8, allocatable :: targs(:,:),uvs_targ(:,:)
+    integer, allocatable :: ipatch_id(:)
+    integer iptype(npatches)
+    integer iptype_avg,norder_avg
+    real *8 rfac,rfac0
     real *8, allocatable :: cms(:,:),rads(:),rad_near(:) 
 
-    integer i,j,jpatch,jquadstart,jstart
+    ! near quadrature correction
+    integer nnz, ikerorder
+    integer, allocatable :: row_ptr(:),col_ind(:),iquad(:) 
+    real *8 dpars(2)
+    integer, allocatable :: ixyzso(:),novers(:)
+    complex *16 ztmp
+    integer nptso
+    real *8, allocatable :: srcover(:,:),wover(:)
+    integer nquad
+    real *8, allocatable :: wnear(:,:)
+    integer iquadtype
+    real *8 t1,t2
 
-    integer ipars(2)
-    complex *16 zpars
-    real *8 timeinfo(10),t1,t2,omp_get_wtime
-
-    real *8 ttot,done,pi
-    real *8 rfac,rfac0
-    integer iptype_avg,norder_avg
-    integer ikerorder,iquadtype
-
-    ! gmres variables
-    real *8 did,rb,wnrm2
-    integer numit,it,iind,it1,k,l
-    real *8 rmyerr
-    complex *16 dtmp,temp
-    complex *16 vmat(npts,numit+1),hmat(numit,numit)
-    complex *16 cs(numit),sn(numit),svec(numit+1),yvec(numit+1)
-    complex *16 wtmp(npts),gradSsigma(3,npts),curlSmH(3,npts)
-    complex *16 mH(3,npts),mHcomps(1,2,npts)
-    complex *16 jtmp(3,npts),curlSjtemp(3,npts),rhs_gmres(npts)
-
-    ! post-gmres variables
-    complex *16 nxgradSD(3,npts), SnxgradSD(3,npts), AcycSnxgradSD
-    complex *16 mHnxcurlSmH(3,npts), SmHnxcurlSmH(3,npts), AcycSmHnxcurlSmH
-    ! circulation (b-cycle) integral 
+    ! circulation (A-cycle) integral 
     integer m, na, nb 
     real *8, allocatable :: avals(:,:),bvals(:,:)
     real *8, allocatable :: awts(:),bwts(:)
     real *8, allocatable :: auv(:,:),buv(:,:)
     integer, allocatable :: apatches(:),bpatches(:)
-    real *8, allocatable :: SnxgradSDrealintp(:,:),SnxgradSDimagintp(:,:)
-    real *8, allocatable :: SmHnxcurlSmHrintp(:,:),SmHnxcurlSmHiintp(:,:)
+
+    ! test solver with a reference field B0
+    integer solvetest
+    complex *16 B0(3,npts)
+    real *8 nxB0(3,npts),nxB0temp(npts),SnxB0(3,npts),SnxB0temp(npts)
+    real *8, allocatable :: SnxB0intp(:,:)
+    real *8 AcycSnxB0, flux
+    complex *16 rhs(npts) 
+
+    complex *16, allocatable :: SnxgradSDintp(:,:)
+    complex *16, allocatable :: SnxgradSwintp(:,:)
+    complex *16, allocatable :: SmHnxcurlSmHintp(:,:)
+
+    integer npatches,npts
+    integer norders(npatches),ixyzs(npatches+1)
+    real *8 srccoefs(9,npts),srcvals(12,npts),eps,eps_gmres
+    complex *16 soln(npts)
+
+    real *8 errs1(numit+1),errs2(numit+1)
+    real *8 rres1,rres2
+    integer niter1,niter2
+
+    integer i,j
+
+    integer ipars(2)
+
+    ! gmres variables
+    real *8 did,rb,wnrm2
+    integer numit,it,iind,it1,k,l
+    real *8 rmyerr
+    complex *16 dtmp,temp,w(npts)
+    complex *16 vmat(npts,numit+1),hmat(numit,numit)
+    complex *16 cs(numit),sn(numit),svec(numit+1),yvec(numit+1)
+    complex *16 wtmp(npts),gradSsigma(3,npts),gradSw(3,npts),curlSmH(3,npts)
+    complex *16 mH(3,npts),mHcomps(1,2,npts)
+    complex *16 jtmp(3,npts),curlSjtemp(3,npts),rhs_gmres(npts)
+
+    ! post-gmres variables
+    complex *16 nxgradSD(3,npts),SnxgradSD(3,npts),AcycSnxgradSD
+    complex *16 nxgradSw(3,npts),SnxgradSw(3,npts),AcycSnxgradSw
+    complex *16 mHnxcurlSmH(3,npts),SmHnxcurlSmH(3,npts),AcycSmHnxcurlSmH
 
     complex *16 sigma(npts),alpha,B(3,npts),nxB(3,npts),SnxB(3,npts),fluxcheck
-    real *8, allocatable :: AcycSnxBrealintp(:,:), AcycSnxBimagintp(:,:)
+    complex *16, allocatable :: AcycSnxBintp(:,:)
 
     complex *16 ima
     data ima/(0.0d0,1.0d0)/
-
-    complex *16 ztmp
 
     done = 1
     pi = atan(done)*4
@@ -370,11 +434,236 @@ subroutine taylor_vaccuum_solver(npatches, norders, ixyzs, iptype, npts, &
     iptype,npts,srccoefs,srcvals,ndtarg,ntarg,targs,ipatch_id, &
     uvs_targ,eps,iquadtype,nnz,row_ptr,col_ind,iquad,rfac0,nquad, &
     wnear)
-    call cpu_time(t2)
-    call prin2('quadrature generation time=*',t2-t1,1)
-    print *, "done generating near quadrature, now starting gmres"
 
-    ! start GMRES 
+    ! reading near quadrature from file 
+    ! open(50,form='unformatted',file='wnear_fat.dat',action='read')
+    ! read(50) wnear
+    ! close(50)
+
+    call cpu_time(t2)
+    print *, 'quadrature generation time=',t2-t1
+    print *, "done generating near quadrature"
+
+    ! writing near quadrature to file 
+    ! open(50,file='wnear_fat.dat',form='unformatted')
+    ! write(50) wnear
+    ! close(50)
+    ! print *, 'done writing near quadrature to file'
+    
+    ! get A-cycle parametrization
+    m = 64
+    na = ipars(2)*m
+    nb = ipars(1)*m 
+    allocate(avals(9,na),awts(na),auv(2,na),apatches(na))
+    allocate(bvals(9,nb),bwts(nb),buv(2,nb),bpatches(nb))
+    call get_ab_cycles_torusparam(npatches,norders,ixyzs,iptype,npts,&
+        srccoefs,srcvals,ipars,m,na,avals,awts,apatches,auv,nb,bvals,&
+        bwts,bpatches,buv)
+    
+    ! rhs computation for testing
+    if(solvetest.eq.1) then
+        do i=1,npts
+            nxB0(1,i) = srcvals(11,i)*real(B0(3,i)) - srcvals(12,i)*real(B0(2,i))
+            nxB0(2,i) = srcvals(12,i)*real(B0(1,i)) - srcvals(10,i)*real(B0(3,i))
+            nxB0(3,i) = srcvals(10,i)*real(B0(2,i)) - srcvals(11,i)*real(B0(1,i))
+        enddo
+        ! compute S[n x B0]
+        do i = 1,3
+            do j = 1,npts
+                nxB0temp(j) = nxB0(i,j)
+            enddo
+            call lpcomp_lap_comb_dir_addsub(npatches,norders,&
+                ixyzs,iptype,npts,srccoefs,srcvals,ndtarg,ntarg,targs,eps,&
+                dpars,nnz,row_ptr,col_ind,iquad,nquad,wnear,nxB0temp,&
+                novers,nptso,ixyzso,srcover,wover,SnxB0temp)
+            do k=1,npts
+                SnxB0(i,k) = SnxB0temp(k)
+            enddo
+        enddo
+        ! evaluate on A-cycle
+        allocate(SnxB0intp(3,na))
+        call fun_surf_interp(3,npatches,norders,ixyzs,iptype,npts,&
+            SnxB0,na,apatches,auv,SnxB0intp)
+        ! integrate along A-cycle
+        AcycSnxB0 = 0
+        do i = 1,na
+            AcycSnxB0 = AcycSnxB0 + ((SnxB0intp(1,i))*avals(4,i) + &
+                SnxB0intp(2,i)*avals(5,i) + & 
+                SnxB0intp(3,i)*avals(6,i)) * awts(i)
+        enddo
+        flux = AcycSnxB0
+        do i=1,npts
+            rhs(i) = -(B0(1,i)*srcvals(10,i) + B0(2,i)*srcvals(11,i) + &
+                B0(3,i)*srcvals(12,i))  
+        enddo
+    endif
+    print *, "now starting gmres 1"
+
+    ! start GMRES for w = A11 \ rhs
+
+    ! $OMP PARALLEL DO DEFAULT(SHARED)
+    do i=1,npts
+        vmat(i,1) = 0
+    enddo
+    ! $OMP END PARALLEL DO 
+
+    did = -1d0/2
+    niter1 = 0
+    rb = 0
+    do i = 1,numit
+        cs(i) = 0
+        sn(1) = 0
+    enddo
+    ! $OMP PARALLEL DO DEFAULT(SHARED) REDUCTION(+:rb)
+    do i=1,npts
+        rb = rb + abs(rhs(i))**2
+    enddo
+    ! $OMP END PARALLEL DO
+    rb = sqrt(rb)
+    ! $OMP PARALLEL DO DEFAULT(SHARED)
+    do i=1,npts
+        w(i) = 0
+    enddo
+    ! $OMP END PARALLEL DO
+    ! only do first GMRES if rhs is nonzero
+    if (abs(rb).gt.1.0d-16) then 
+        ! $OMP PARALLEL DO DEFAULT(SHARED)
+        do i=1,npts
+            vmat(i,1) = rhs(i)/rb
+        enddo
+        ! $OMP END PARALLEL DO 
+        svec(1) = rb
+
+        ! dummy argument (current) for layer potential evaluation
+        ! $OMP PARALLEL DO DEFAULT(SHARED)
+        do i=1,3
+            do j=1,npts
+                jtmp(i,j) = 0
+                curlSjtemp(i,j) = 0
+            enddo
+        enddo
+        ! $OMP PARALLEL DO DEFAULT(SHARED)
+
+        ! GMRES iteration
+        do it = 1,numit
+            it1 = it+1
+            ! layer potential evaluation
+            call lpcomp_virtualcasing_addsub_complex(npatches,norders,ixyzs,&
+            iptype,npts,srccoefs,srcvals,ndtarg,ntarg,targs,eps,nnz,&
+            row_ptr,col_ind,iquad,nquad,wnear,jtmp,vmat(1:npts,it),&
+            novers,nptso,ixyzso,srcover,wover,curlSjtemp,gradSsigma)
+            ! $OMP PARALLEL DO DEFAULT(SHARED)
+            do i=1,npts
+                wtmp(i) = -gradSsigma(1,i)*srcvals(10,i)
+                wtmp(i) = wtmp(i) - gradSsigma(2,i)*srcvals(11,i)
+                wtmp(i) = wtmp(i) - gradSsigma(3,i)*srcvals(12,i)
+            enddo
+            ! $OMP END PARALLEL DO
+
+            do k = 1,it
+                dtmp = 0
+                ! $OMP PARALLEL DO DEFAULT(SHARED) REDUCTION(+:dtmp)
+                do j = 1,npts
+                    dtmp = dtmp + wtmp(j)*vmat(j,k)
+                enddo
+                ! $OMP END PARALLEL DO
+                hmat(k,it) = dtmp
+                ! $OMP PARALLEL DO DEFAULT(SHARED) 
+                do j = 1,npts
+                    wtmp(j) = wtmp(j) - hmat(k,it)*vmat(j,k)
+                enddo
+                ! $OMP END PARALLEL DO 
+            enddo
+
+            hmat(it,it) = hmat(it,it) + did
+            wnrm2 = 0
+            ! $OMP PARALLEL DO DEFAULT(SHARED) REDUCTION(+:dtmp)
+            do j = 1,npts
+                wnrm2 = wnrm2 + abs(wtmp(j))**2
+            enddo
+            ! $OMP END PARALLEL DO
+            wnrm2 = sqrt(wnrm2)
+
+            ! $OMP PARALLEL DO DEFAULT(SHARED) 
+            do j = 1,npts
+                vmat(j,it1) = wtmp(j)/wnrm2
+            enddo
+            ! $OMP END PARALLEL DO 
+
+            ! adapted for complex system
+            do k=1,it-1
+                temp = cs(k)*hmat(k,it)+sn(k)*hmat(k+1,it)
+                hmat(k+1,it) = -sn(k)*hmat(k,it)+cs(k)*hmat(k+1,it)
+                hmat(k,it) = temp
+            enddo
+    
+            dtmp = wnrm2
+    
+            call rotmat_complex_gmres(hmat(it,it),dtmp,cs(it),sn(it))
+                
+            hmat(it,it) = cs(it)*hmat(it,it)+sn(it)*wnrm2
+            svec(it1) = -sn(it)*svec(it)
+            svec(it) = cs(it)*svec(it)
+            rmyerr = abs(svec(it1))/rb
+            errs1(it) = rmyerr
+            print *, "iter=",it,errs1(it)
+    
+            if(rmyerr.le.eps_gmres.or.it.eq.numit) then
+                ! solve the linear system corresponding to upper triangular part 
+                ! of hmat to obtain yvec
+                ! y = triu(H(1:it,1:it))\s(1:it)
+                do j = 1,it
+                    iind = it-j+1
+                    yvec(iind) = svec(iind)
+                    do l=iind+1,it
+                        yvec(iind) = yvec(iind) - hmat(iind,l)*yvec(l)
+                    enddo
+                    yvec(iind) = yvec(iind)/hmat(iind,iind)
+                enddo
+                ! estimate w
+                ! $OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i,j)
+                do j = 1,npts
+                    w(j) = 0
+                    do i=1,it
+                        w(j) = w(j) + yvec(i)*vmat(j,i)
+                    enddo
+                enddo
+                ! $OMP END PARALLEL DO          
+                rres1 = 0
+                ! $OMP PARALLEL DO DEFAULT(SHARED) 
+                do j = 1,npts
+                    wtmp(j) = 0
+                enddo
+                ! $OMP END PARALLEL DO 
+                ! compute error
+                call lpcomp_virtualcasing_addsub_complex(npatches,norders,ixyzs,&
+                iptype,npts,srccoefs,srcvals,ndtarg,ntarg,targs,eps,nnz,row_ptr,&
+                col_ind,iquad,nquad,wnear,jtmp,w,novers,nptso,ixyzso,srcover,&
+                wover,curlSjtemp,gradSw)
+                ! curlSmH = curl S[mH], gradSw = grad S[w]
+                ! compute -n . grad S[w]
+                ! $OMP PARALLEL DO DEFAULT(SHARED)
+                do i=1,npts
+                    wtmp(i) = -gradSw(1,i)*srcvals(10,i)
+                    wtmp(i) = wtmp(i) - gradSw(2,i)*srcvals(11,i)
+                    wtmp(i) = wtmp(i) - gradSw(3,i)*srcvals(12,i)
+                enddo
+                ! $OMP END PARALLEL DO
+                ! $OMP PARALLEL DO DEFAULT(SHARED) REDUCTION(+:rres)
+                do i = 1,npts
+                    rres1 = rres1 + abs(did*w(i) + wtmp(i) - rhs(i))**2
+                enddo
+                ! $OMP END PARALLEL DO       
+                rres1 = sqrt(rres1)/rb   
+                niter1 = it
+                ! Now w = rhs \ A11, ending the first GMRES 
+                exit
+            endif
+        enddo
+    endif
+    print *,'now starting gmres 2'
+
+    ! start GMRES for D = A11 \ -A12
 
     ! Find A_12 = i n . curl S_0[m_H] (see [1], section 3.1.4)
 
@@ -383,11 +672,7 @@ subroutine taylor_vaccuum_solver(npatches, norders, ixyzs, iptype, npts, &
     ! compute curl S_0[m_H]
     ! This subroutine computes grad S and curl S at the same time, 
     ! so a dummy argument is used for the grad S computation.
-    ! $OMP PARALLEL DO DEFAULT(SHARED)
-    do i=1,npts
-        vmat(i,1) = 0
-    enddo
-    ! $OMP END PARALLEL DO 
+
     call lpcomp_virtualcasing_addsub_complex(npatches,norders,ixyzs,iptype,&
         npts,srccoefs,srcvals,ndtarg,ntarg,targs,eps,nnz,row_ptr,col_ind,&
         iquad,nquad,wnear,mH,vmat(1:npts,1),novers,nptso,ixyzso,srcover,&
@@ -398,12 +683,11 @@ subroutine taylor_vaccuum_solver(npatches, norders, ixyzs, iptype, npts, &
         rhs_gmres(i) = -curlSmH(1,i)*srcvals(10,i) 
         rhs_gmres(i) = rhs_gmres(i) - curlSmH(2,i)*srcvals(11,i) 
         rhs_gmres(i) = rhs_gmres(i) - curlSmH(3,i)*srcvals(12,i) 
-        rhs_gmres(i) = ima*rhs_gmres(i)
+        rhs_gmres(i) = ima*rhs_gmres(i) 
     enddo
     ! $OMP END PARALLEL DO 
 
-    did = -1d0/2
-    niter = 0
+    niter2 = 0
     ! compute norm of RHS and initialize v
     rb = 0
     do i = 1,numit
@@ -415,6 +699,7 @@ subroutine taylor_vaccuum_solver(npatches, norders, ixyzs, iptype, npts, &
         rb = rb + abs(rhs_gmres(i))**2
     enddo
     ! $OMP END PARALLEL DO
+    rb = sqrt(rb)
     ! $OMP PARALLEL DO DEFAULT(SHARED)
     do i=1,npts
         vmat(i,1) = rhs_gmres(i)/rb
@@ -488,13 +773,13 @@ subroutine taylor_vaccuum_solver(npatches, norders, ixyzs, iptype, npts, &
         dtmp = wnrm2
   
         call rotmat_complex_gmres(hmat(it,it),dtmp,cs(it),sn(it))
-            
-        hmat(it,it) = cs(it)*hmat(it,it)+sn(it)*wnrm2
+
+        hmat(it,it) = conjg(cs(it))*hmat(it,it)+sn(it)*wnrm2
         svec(it1) = -sn(it)*svec(it)
         svec(it) = cs(it)*svec(it)
         rmyerr = abs(svec(it1))/rb
-        errs(it) = rmyerr
-        print *, "iter=",it,errs(it)
+        errs2(it) = rmyerr
+        print *, "iter=",it,errs2(it)
   
         if(rmyerr.le.eps_gmres.or.it.eq.numit) then
             ! solve the linear system corresponding to upper triangular part of 
@@ -517,7 +802,7 @@ subroutine taylor_vaccuum_solver(npatches, norders, ixyzs, iptype, npts, &
                 enddo
             enddo
             ! $OMP END PARALLEL DO          
-            rres = 0
+            rres2 = 0
             ! $OMP PARALLEL DO DEFAULT(SHARED) 
             do j = 1,npts
                 wtmp(j) = 0
@@ -538,14 +823,15 @@ subroutine taylor_vaccuum_solver(npatches, norders, ixyzs, iptype, npts, &
             ! $OMP END PARALLEL DO
             ! $OMP PARALLEL DO DEFAULT(SHARED) REDUCTION(+:rres)
             do i = 1,npts
-                rres = rres + abs(did*soln(i) + wtmp(i) - rhs_gmres(i))**2
+                rres2 = rres2 + abs(did*soln(i) + wtmp(i) - rhs_gmres(i))**2
             enddo
             ! $OMP END PARALLEL DO          
-            rres = sqrt(rres)/rb
-            niter = it
+            rres2 = sqrt(rres2)/rb
+            niter2 = it
 
             ! Now soln = D (see [1]). We solve for alpha and sigma using (31) 
             ! and (32). 
+            ! If there is a rhs, we do the same computations on w as we do on D
             
             ! compute -n x grad S[D]
             ! $OMP PARALLEL DO DEFAULT(SHARED)
@@ -558,39 +844,48 @@ subroutine taylor_vaccuum_solver(npatches, norders, ixyzs, iptype, npts, &
                     + srcvals(11,i)*gradSsigma(1,i)
             enddo
             ! $OMP END PARALLEL DO
+            ! compute -n x grad S[w]
+            ! $OMP PARALLEL DO DEFAULT(SHARED)
+            do i = 1,npts
+                nxgradSw(1,i) = -srcvals(11,i)*gradSw(3,i)&
+                    + srcvals(12,i)*gradSw(2,i)
+                nxgradSw(2,i) = -srcvals(12,i)*gradSw(1,i)&
+                    + srcvals(10,i)*gradSw(3,i)
+                nxgradSw(3,i) = -srcvals(10,i)*gradSw(2,i)&
+                    + srcvals(11,i)*gradSw(1,i)
+            enddo
+            ! $OMP END PARALLEL DO
+
             ! compute -S[n x grad S[D]]
             call lpcomp_lap_comb_dir_addsub_complex_vec(3,npatches,norders,&
                 ixyzs,iptype,npts,srccoefs,srcvals,ndtarg,ntarg,targs,eps,&
                 dpars,nnz,row_ptr,col_ind,iquad,nquad,wnear,nxgradSD,novers,&
-                npts,ixyzso,srcover,wover,SnxgradSD)
+                nptso,ixyzso,srcover,wover,SnxgradSD)
+            ! compute -S[n x grad S[w]]
+            call lpcomp_lap_comb_dir_addsub_complex_vec(3,npatches,norders,&
+                ixyzs,iptype,npts,srccoefs,srcvals,ndtarg,ntarg,targs,eps,&
+                dpars,nnz,row_ptr,col_ind,iquad,nquad,wnear,nxgradSw,novers,&
+                nptso,ixyzso,srcover,wover,SnxgradSw)
 
-            ! get A-cycle parametrization
-            m = 16 
-            na = ipars(2)*m
-            nb = ipars(1)*m 
-            allocate(avals(9,na),awts(na),auv(2,na),apatches(na))
-            allocate(bvals(9,nb),bwts(nb),buv(2,nb),bpatches(nb))
-            call get_ab_cycles_torusparam(npatches,norders,ixyzs,iptype,npts,&
-                srccoefs,srcvals,ipars,m,na,avals,awts,apatches,auv,nb,bvals,&
-                bwts,bpatches,buv)
-
+            allocate(SnxgradSDintp(3,na),SnxgradSwintp(3,na))
             ! evaluate -S[n x grad S[D]] on A-cycle
-            allocate(SnxgradSDrealintp(3,na),SnxgradSDimagintp(3,na))
-            call fun_surf_interp(3,npatches,norders,ixyzs,iptype,npts,&
-                real(SnxgradSD),na,apatches,auv,SnxgradSDrealintp)
-            call fun_surf_interp(3,npatches,norders,ixyzs,iptype,npts,&
-                aimag(SnxgradSD),na,apatches,auv,SnxgradSDimagintp)
-            
-            ! integrate along A-cycle
+            call fun_surf_interp_complex(3,npatches,norders,ixyzs,iptype,npts,&
+                SnxgradSD,na,apatches,auv,SnxgradSDintp)
+            ! evaluate -S[n x grad S[w]] on A-cycle
+            call fun_surf_interp_complex(3,npatches,norders,ixyzs,iptype,npts,&
+                SnxgradSw,na,apatches,auv,SnxgradSwintp)
             AcycSnxgradSD = 0
+            ! integrate along A-cycle
             do i = 1,na
-                AcycSnxgradSD = AcycSnxgradSD + (&
-                    (SnxgradSDrealintp(1,i) + ima*SnxgradSDimagintp(1,i)) * &
-                        avals(4,i) + &
-                    (SnxgradSDrealintp(2,i) + ima*SnxgradSDimagintp(2,i)) * & 
-                        avals(5,i) + & 
-                    (SnxgradSDrealintp(3,i) + ima*SnxgradSDimagintp(3,i)) * & 
-                        avals(6,i)) * awts(i)
+                AcycSnxgradSD = AcycSnxgradSD + (SnxgradSDintp(1,i)*avals(4,i) &
+                    + SnxgradSDintp(2,i)*avals(5,i) &
+                    + SnxgradSDintp(3,i)*avals(6,i))*awts(i)
+            enddo
+            AcycSnxgradSw = 0
+            do i = 1,na
+                AcycSnxgradSw = AcycSnxgradSw + (SnxgradSwintp(1,i)*avals(4,i) &
+                    + SnxgradSwintp(2,i)*avals(5,i) &
+                    + SnxgradSwintp(3,i)*avals(6,i))*awts(i)
             enddo
 
             ! compute -m_H/2 + n x curl S[mH]
@@ -604,46 +899,47 @@ subroutine taylor_vaccuum_solver(npatches, norders, ixyzs, iptype, npts, &
                     srcvals(10,i)*curlSmH(2,i) - srcvals(11,i)*curlSmH(1,i)
             enddo
             ! $OMP END PARALLEL DO
-            ! compute S[-m_H/2 + curl S[mH]]
+            ! compute S[-m_H/2 + n x curl S[mH]]
             call lpcomp_lap_comb_dir_addsub_complex_vec(3,npatches,norders,&
                 ixyzs,iptype,npts,srccoefs,srcvals,ndtarg,ntarg,targs,eps,&
                 dpars,nnz,row_ptr,col_ind,iquad,nquad,wnear,mHnxcurlSmH,&
-                novers,npts,ixyzso,srcover,wover,SmHnxcurlSmH)
+                novers,nptso,ixyzso,srcover,wover,SmHnxcurlSmH)
 
-            ! evaluate S[-m_H/2 + curl S[mH]] on A-cycle
-            allocate(SmHnxcurlSmHrintp(3,na),SmHnxcurlSmHiintp(3,na))
-            call fun_surf_interp(3,npatches,norders,ixyzs,iptype,npts,&
-                real(SmHnxcurlSmH),na,apatches,auv,SmHnxcurlSmHrintp)
-            call fun_surf_interp(3,npatches,norders,ixyzs,iptype,npts,&
-                aimag(SmHnxcurlSmH),na,apatches,auv,SmHnxcurlSmHiintp)
+            ! evaluate S[-m_H/2 + n x curl S[mH]] on A-cycle
+            allocate(SmHnxcurlSmHintp(3,na))
+            call fun_surf_interp_complex(3,npatches,norders,ixyzs,iptype,npts,&
+                SmHnxcurlSmH,na,apatches,auv,SmHnxcurlSmHintp)
 
             ! integrate along A-cycle
             AcycSmHnxcurlSmH = 0
             do i = 1,na
-                AcycSmHnxcurlSmH = AcycSmHnxcurlSmH + (&
-                    (SmHnxcurlSmHrintp(1,i) + ima*SmHnxcurlSmHiintp(1,i)) * &
-                        avals(4,i) + &
-                    (SmHnxcurlSmHrintp(2,i) + ima*SmHnxcurlSmHiintp(2,i)) * & 
-                        avals(5,i) + & 
-                    (SmHnxcurlSmHrintp(3,i) + ima*SmHnxcurlSmHiintp(3,i)) * & 
-                        avals(6,i)) * awts(i)
+                AcycSmHnxcurlSmH = AcycSmHnxcurlSmH + awts(i)*(&
+                    SmHnxcurlSmHintp(1,i)*avals(4,i) + &
+                    SmHnxcurlSmHintp(2,i)*avals(5,i) + & 
+                    SmHnxcurlSmHintp(3,i)*avals(6,i))
             enddo
+            ! multiply by i
             AcycSmHnxcurlSmH = ima*AcycSmHnxcurlSmH
 
-            print *,"A21D + A22 = ",AcycSnxgradSD + AcycSmHnxcurlSmH
-            alpha = flux/(AcycSnxgradSD + AcycSmHnxcurlSmH)
+            alpha = (flux + AcycSnxgradSw)/(AcycSnxgradSD + AcycSmHnxcurlSmH)
             ! $OMP PARALLEL DO DEFAULT(SHARED)
             do i = 1,npts
-                sigma(i) = alpha*soln(i)
+                sigma(i) = alpha*soln(i) + w(i) ! no paper edit
+                ! sigma(i) = alpha*soln(i) - w(i) ! new edit
             enddo
             ! $OMP END PARALLEL DO
 
             ! compute the magnetic field from sigma and alpha
+            ! added 11/2/23
+            call lpcomp_virtualcasing_addsub_complex(npatches,norders,ixyzs,&
+            iptype,npts,srccoefs,srcvals,ndtarg,ntarg,targs,eps,nnz,row_ptr,&
+            col_ind,iquad,nquad,wnear,mH,sigma,novers,nptso,ixyzso,srcover,&
+            wover,curlSmH,gradSsigma)
             ! $OMP PARALLEL DO DEFAULT(SHARED)
             do i = 1,npts
                 do j = 1,3
-                    B(j,i) = alpha*(-soln(i)*srcvals(j+9,i)/2 + mH(j,i)/2 &
-                        - gradSsigma(j,i) + ima*curlSmH(j,i))
+                    B(j,i) = (-sigma(i)*srcvals(j+9,i) + alpha*mH(j,i))/2 &
+                        - gradSsigma(j,i) + alpha*ima*curlSmH(j,i)
                 enddo
             enddo 
             ! $OMP END PARALLEL DO
@@ -658,22 +954,17 @@ subroutine taylor_vaccuum_solver(npatches, norders, ixyzs, iptype, npts, &
             ! $OMP END PARALLEL DO
             call lpcomp_lap_comb_dir_addsub_complex_vec(3,npatches,norders,&
                 ixyzs,iptype,npts,srccoefs,srcvals,ndtarg,ntarg,targs,eps,&
-                dpars,nnz,row_ptr,col_ind,iquad,nquad,wnear,nxB,novers,npts,&
+                dpars,nnz,row_ptr,col_ind,iquad,nquad,wnear,nxB,novers,nptso,&
                 ixyzso,srcover,wover,SnxB)
-            allocate(AcycSnxBrealintp(3,na),AcycSnxBimagintp(3,na))
-            call fun_surf_interp(3,npatches,norders,ixyzs,iptype,npts,&
-                real(SnxB),na,apatches,auv,AcycSnxBrealintp)
-            call fun_surf_interp(3,npatches,norders,ixyzs,iptype,npts,&
-                aimag(SnxB),na,apatches,auv,AcycSnxBimagintp)
+            allocate(AcycSnxBintp(3,na))    
+            call fun_surf_interp_complex(3,npatches,norders,ixyzs,iptype,npts,&
+                SnxB,na,apatches,auv,AcycSnxBintp)
             fluxcheck = 0
             do i = 1,na
-                fluxcheck = fluxcheck + (&
-                    (AcycSnxBrealintp(1,i) + ima*AcycSnxBimagintp(1,i))&
-                        *avals(4,i) + &
-                    (AcycSnxBrealintp(2,i) + ima*AcycSnxBimagintp(2,i))&
-                        *avals(5,i) + &
-                    (AcycSnxBrealintp(3,i) + ima*AcycSnxBimagintp(3,i))&
-                        *avals(6,i)) * awts(i)
+                fluxcheck = fluxcheck + awts(i)*(&
+                    AcycSnxBintp(1,i)*avals(4,i) + &
+                    AcycSnxBintp(2,i)*avals(5,i) + &
+                    AcycSnxBintp(3,i)*avals(6,i))
             enddo
             return 
         endif
@@ -771,354 +1062,6 @@ subroutine axi_surf_harm_field(npts, srcvals, mH, mHcomps)
     return
 end subroutine axi_surf_harm_field
 
-! subroutine test_axi_surf_harm_field(npatches, norders, ixyzs, iptype, npts, &
-!     srccoefs, srcvals, f, surfdivf, sum)
-!     ! 
-!     ! Tests that the vector field generated by axi_surf_harm_field() satisfies 
-!     ! the conditions for harmonicity. 
-!     ! 
-!     ! ==========================================================================
-!     ! 
-!     ! Input: (TODO)
-!     !   npts - integer
-!     !      total number of discretiztion points on the boundary
-!     !   
-!     !   srcvals - real *8 (12,npts)
-!     !     xyz(u,v) and derivative info sampled at the 
-!     !     discretization nodes on the surface
-!     !     srcvals(1:3,i) - xyz info
-!     !     srcvals(4:6,i) - dxyz/du info
-!     !     srcvals(7:9,i) - dxyz/dv info 
-!     !     srcvals(10:12,i) - nxyz info 
-!     ! 
-!     !   field - real *8 (3,npts)
-!     !     field generated by axi_surf_harm_field()
-!     ! 
-!     implicit none
-!     integer, intent(in) :: npatches, norders(npatches), ixyzs(npatches+1)
-!     integer, intent(in) :: iptype(npatches), npts
-!     real *8, intent(in) :: srccoefs(9,npts), srcvals(12,npts), f(3,npts)
-!     real *8, intent(out) :: surfdivf(npts), sum
-
-!     integer :: i, istart, npols
-!     real *8 :: dfuv(3,2,npts), ginv(2,2,npts), temp(6,npts)
-!     ! integer i, j
-!     ! real *8 gdet
-!     ! real *8 umet(3,npts), vmet(3,npts)
-
-!     ! compute metric quantities, see Dan's paper
-!     ! do i = 1,npts
-!     !     ginv(1,1,i) = 0
-!     !     do j = 1,npts
-!     !         ginv(1,1,i) = ginv(1,1,i) + srcvals(6+j,i)**2
-!     !     enddo
-!     !     ginv(1,2,i) = 0
-!     !     do j = 1,npts
-!     !         ginv(1,2,i) = ginv(1,2,i) - srcvals(3+j,i)*srcvals(6+j,i)
-!     !     enddo
-!     !     ginv(2,1,i) = 0
-!     !     do j = 1,npts
-!     !         ginv(2,1,i) = ginv(2,1,i) - srcvals(6+j,i)*srcvals(3+j,i)
-!     !     enddo
-!     !     ginv(2,2,i) = 0
-!     !     do j = 1,npts
-!     !         ginv(2,2,i) = ginv(2,2,i) + srcvals(3+j,i)**2
-!     !     enddo
-!     ! enddo
-!     ! do i = 1,npts
-!     !     gdet = abs(ginv(1,1,i)*ginv(2,2,i) - ginv(1,2,i)*ginv(2,1,i))
-!     !     ginv(1,1,i) = ginv(1,1,i)/gdet
-!     !     ginv(1,2,i) = ginv(1,2,i)/gdet
-!     !     ginv(2,1,i) = ginv(2,1,i)/gdet
-!     !     ginv(2,2,i) = ginv(2,2,i)/gdet
-!     !     do j = 1,npts
-!     !         umet(j,i) = ginv(1,1,i)*srcvals(3+j,i) + ginv(2,1,i)*srcvals(6+j,i)
-!     !         vmet(j,i) = ginv(1,2,i)*srcvals(3+j,i) + ginv(2,2,i)*srcvals(6+j,i)
-!     !     enddo
-!     ! enddo
-!     ! NEED DERIVATIVES OF m_H
-
-!     call get_inv_first_fundamental_form(npatches, norders, ixyzs, iptype, &
-!     npts, srccoefs, srcvals, ginv)
-!     print *,"dfuv before"
-!     print *,dfuv(:,:,npts-1) !write(13,*) dfuv(:,:,1)
-!     !write(13,*) "before"
-!     do i = 1,npatches
-!         istart = ixyzs(i)
-!         npols = ixyzs(i+1)-ixyzs(i)
-!         call get_surf_uv_grad_guru(3, norders(i), npols, &
-!         iptype(i), f(1,istart), dfuv(1,1,istart))
-!     enddo
-!     ! call get_surf_uv_grad(3, npatches, norders, ixyzs, iptype, npts, srccoefs, &
-!     ! srcvals, f, dfuv)
-!     print *,"dfuv after"
-!     print *,dfuv(:,:,npts-1) !write(13,*) dfuv(:,:,1)
-!     !write(13,*) "after"
-!     do i = 1,npts
-!         temp(1,i) = ginv(1,1,i)*srcvals(4,i) + ginv(1,2,i)*srcvals(7,i)
-!         temp(2,i) = ginv(1,1,i)*srcvals(5,i) + ginv(1,2,i)*srcvals(8,i)
-!         temp(3,i) = ginv(1,1,i)*srcvals(6,i) + ginv(1,2,i)*srcvals(9,i)
-!         temp(4,i) = ginv(2,1,i)*srcvals(4,i) + ginv(2,2,i)*srcvals(7,i)
-!         temp(5,i) = ginv(2,1,i)*srcvals(5,i) + ginv(2,2,i)*srcvals(8,i)
-!         temp(6,i) = ginv(2,1,i)*srcvals(6,i) + ginv(2,2,i)*srcvals(9,i)
-!     enddo
-!     do i = 1,npts
-!         surfdivf(i) = temp(1,i)*dfuv(1,1,i)
-!         surfdivf(i) = surfdivf(i) + temp(2,i)*dfuv(2,1,i)
-!         surfdivf(i) = surfdivf(i) + temp(3,i)*dfuv(3,1,i)
-!         surfdivf(i) = surfdivf(i) + temp(4,i)*dfuv(1,2,i)
-!         surfdivf(i) = surfdivf(i) + temp(5,i)*dfuv(2,2,i)
-!         surfdivf(i) = surfdivf(i) + temp(6,i)*dfuv(3,2,i)
-!         ! if (i.eq.26) then
-!         !     print *,dfuv(3,2,i)
-!         !     ! print *,surfdivf(i)
-!         ! endif
-!     enddo
-!     ! testing
-!     ! do i = 1,npts
-!     !     surfdivf(i) = ginv(2,2,i)
-!     ! enddo
-!     ! end testing
-!     sum = 0
-!     do i = 1,npts
-!         sum = sum + abs(surfdivf(i))
-!     enddo
-
-!     return
-! end subroutine test_axi_surf_harm_field
-
-subroutine setup_geom_vacuum(igeomtype, norder, npatches, ipars, srcvals, &
-    srccoefs, ifplot, fname)
-    ! 
-    ! Geometry setup function lifted from superconductor-type1/test/
-    ! test_ab_cycle.f
-
-    implicit none
-    integer npols,itype,npmax,ntri,nover
-    real *8 done,pi,umin,umax,vmin,vmax
-    integer igeomtype,norder,npatches,ipars(*),ifplot
-    character (len=*) fname
-    real *8 srcvals(12,*), srccoefs(9,*)
-    real *8, allocatable :: uvs(:,:),umatr(:,:),vmatr(:,:),wts(:)
-
-    real *8, pointer :: ptr1,ptr2,ptr3,ptr4
-    integer, pointer :: iptr1,iptr2,iptr3,iptr4
-    real *8, target :: p1(10),p2(10),p3(10),p4(10)
-    real *8, allocatable, target :: triaskel(:,:,:)
-    real *8, allocatable, target :: deltas(:,:)
-    integer, allocatable :: isides(:)
-    integer, target :: nmax,mmax
-
-    procedure (), pointer :: xtri_geometry
-
-    external xtri_stell_eval,xtri_sphere_eval,xtri_wtorus_eval
-      
-    npols = (norder+1)*(norder+2)/2
-    allocate(uvs(2,npols),umatr(npols,npols),vmatr(npols,npols))
-    allocate(wts(npols))
-
-    call vioreanu_simplex_quad(norder,npols,uvs,umatr,vmatr,wts)
-
-    if(igeomtype.eq.1) then
-        itype = 2
-        allocate(triaskel(3,3,npatches))
-        allocate(isides(npatches))
-        npmax = npatches
-        ntri = 0
-        call xtri_platonic(itype, ipars(1), npmax, ntri, triaskel, isides)
-
-        xtri_geometry => xtri_sphere_eval
-        ptr1 => triaskel(1,1,1)
-        ptr2 => p2(1)
-        ptr3 => p3(1)
-        ptr4 => p4(1)
-
-
-        if(ifplot.eq.1) then
-            call xtri_vtk_surf(fname,npatches,xtri_geometry,ptr1,ptr2,ptr3,&
-                ptr4, norder,'Triangulated surface of the sphere')
-        endif
-
-
-        call getgeominfo(npatches,xtri_geometry,ptr1,ptr2,ptr3,ptr4,npols,uvs,&
-            umatr,srcvals,srccoefs)
-      endif
-
-    if(igeomtype.eq.2) then
-        done = 1
-        pi = atan(done)*4
-        umin = 0
-        umax = 2*pi
-        vmin = 2*pi
-        vmax = 0
-        allocate(triaskel(3,3,npatches))
-        nover = 0
-        call xtri_rectmesh_ani(umin,umax,vmin,vmax,ipars(1),ipars(2),nover,&
-            npatches,npatches,triaskel)
-
-        mmax = 2
-        nmax = 1
-        xtri_geometry => xtri_stell_eval
-
-        allocate(deltas(-1:mmax,-1:nmax))
-        deltas(-1,-1) = 0.17d0
-        deltas(0,-1) = 0
-        deltas(1,-1) = 0
-        deltas(2,-1) = 0
-
-        deltas(-1,0) = 0.11d0
-        deltas(0,0) = 1
-        deltas(1,0) = 4.5d0
-        deltas(2,0) = -0.25d0
-
-        deltas(-1,1) = 0
-        deltas(0,1) = 0.07d0
-        deltas(1,1) = 0
-        deltas(2,1) = -0.45d0
-
-        ptr1 => triaskel(1,1,1)
-        ptr2 => deltas(-1,-1)
-        iptr3 => mmax
-        iptr4 => nmax
-
-        if(ifplot.eq.1) then
-            call xtri_vtk_surf(fname,npatches,xtri_geometry, ptr1,ptr2,iptr3,&
-            iptr4,norder,'Triangulated surface of the stellarator')
-        endif
-
-        call getgeominfo(npatches,xtri_geometry,ptr1,ptr2,iptr3,iptr4,npols,&
-            uvs,umatr,srcvals,srccoefs)
-    endif
-
-    if(igeomtype.eq.3) then
-        done = 1
-        pi = atan(done)*4
-        umin = 0
-        umax = 2*pi
-        vmin = 0
-        vmax = 2*pi
-        allocate(triaskel(3,3,npatches))
-        nover = 0
-        call xtri_rectmesh_ani(umin,umax,vmin,vmax,ipars(1),ipars(2),nover,&
-            npatches,npatches,triaskel)
-        call prinf('npatches=*',npatches,1)
-         
-        p1(1) = 1
-        p1(2) = 2
-        p1(3) = 0.25d0
-
-        p2(1) = 1.0d0
-        p2(2) = 1.0d0
-        p2(3) = 1.0d0
-
-        ! number of oscillations
-        p4(1) = 3.0d0
-
-
-        ptr1 => triaskel(1,1,1)
-        ptr2 => p1(1)
-        ptr3 => p2(1)
-        ptr4 => p4(1)
-        xtri_geometry => xtri_wtorus_eval
-        if(ifplot.eq.1) then
-            call xtri_vtk_surf(fname,npatches,xtri_geometry, ptr1,ptr2,ptr3,&
-                ptr4, norder,'Triangulated surface of the wtorus')
-        endif
-
-
-        call getgeominfo(npatches,xtri_geometry,ptr1,ptr2,ptr3,ptr4,npols,uvs,&
-            umatr,srcvals,srccoefs)
-    endif
-      
-    if(igeomtype.eq.4) then
-        done = 1
-        pi = atan(done)*4
-        umin = 0
-        umax = 2*pi
-        vmin = 0
-        vmax = 2*pi
-        allocate(triaskel(3,3,npatches))
-        nover = 0
-        call xtri_rectmesh_ani(umin,umax,vmin,vmax,ipars(1),ipars(2),nover,&
-            npatches,npatches,triaskel)
-        call prinf('npatches=*',npatches,1)
-         
-        p1(1) = 1.0d0
-        p1(2) = 1.75d0
-        p1(3) = 0.25d0
-
-        p2(1) = 1.0d0
-        p2(2) = 1.0d0
-        p2(3) = 1.0d0
-        ! number of oscillations
-        p4(1) = 0.0d0
-
-
-        ptr1 => triaskel(1,1,1)
-        ptr2 => p1(1)
-        ptr3 => p2(1)
-        ptr4 => p4(1)
-        xtri_geometry => xtri_wtorus_eval
-        if(ifplot.eq.1) then
-            call xtri_vtk_surf(fname,npatches,xtri_geometry, ptr1,ptr2,ptr3,&
-                ptr4, norder,'Triangulated surface of the torus')
-        endif
-
-
-        call getgeominfo(npatches,xtri_geometry,ptr1,ptr2,ptr3,ptr4,npols,uvs,&
-            umatr,srcvals,srccoefs)
-    endif
-
-    if(igeomtype.eq.5) then
-        done = 1
-        pi = atan(done)*4
-        umin = 0
-        umax = 2*pi
-        vmin = 2*pi
-        vmax = 0
-        allocate(triaskel(3,3,npatches))
-        nover = 0
-        call xtri_rectmesh_ani(umin,umax,vmin,vmax,ipars(1),ipars(2),nover,&
-            npatches,npatches,triaskel)
-
-        mmax = 2
-        nmax = 1
-        xtri_geometry => xtri_stell_eval
-
-        allocate(deltas(-1:mmax,-1:nmax))
-        deltas(-1,-1) = 0.17d0*0
-        deltas(0,-1) = 0
-        deltas(1,-1) = 0
-        deltas(2,-1) = 0
-
-        deltas(-1,0) = 0.11d0*0
-        deltas(0,0) = 1*0
-        deltas(1,0) = 2.0d0
-        deltas(2,0) = -0.25d0*0
-
-        deltas(-1,1) = 0
-        deltas(0,1) = 1.0d0
-        deltas(1,1) = 0
-        deltas(2,1) = -0.45d0*0
-
-
-        ptr1 => triaskel(1,1,1)
-        ptr2 => deltas(-1,-1)
-        iptr3 => mmax
-        iptr4 => nmax
-
-        if(ifplot.eq.1) then
-            call xtri_vtk_surf(fname,npatches,xtri_geometry, ptr1,ptr2,iptr3,&
-                iptr4, norder,'Triangulated surface of the stellarator')
-        endif
-
-        call getgeominfo(npatches,xtri_geometry,ptr1,ptr2,iptr3,iptr4,npols,&
-            uvs,umatr,srcvals,srccoefs)
-    endif
-      
-    return  
-end subroutine setup_geom_vacuum
-
 subroutine rotmat_complex_gmres(a,b,c,s)
     implicit none
     complex *16 a,b,c,s,temp,aphase,bphase
@@ -1134,204 +1077,3 @@ subroutine rotmat_complex_gmres(a,b,c,s)
         s = bphase/sqrt(1.0d0+1/temp)
     endif
 end subroutine rotmat_complex_gmres
-
-program vacuum
-    implicit none
-
-    integer :: norder,npols,npatches,npts,m,na,nb,ipars(2)
-    integer, allocatable :: norders(:),ixyzs(:),iptype(:)
-    real *8, allocatable :: srccoefs(:,:),srcvals(:,:),surfdivf(:)
-    real *8, allocatable :: mHrealinterp(:,:),mHimaginterp(:,:)
-    real *8, allocatable :: avals(:,:),bvals(:,:),awts(:),bwts(:)
-    real *8, allocatable :: auv(:,:),buv(:,:)
-    integer, allocatable :: apatches(:),bpatches(:)
-    complex *16 :: sum
-    complex *16, allocatable :: mH(:,:),mHcomps(:,:,:),nxmH(:,:),dmH(:,:)
-    real *8, allocatable :: ffform(:,:,:),dmHreal(:,:),dmHimag(:,:)
-    integer i,igeomtype,ifplot,j
-    character *300 fname
-
-    ! add'l variables for taylor_vacuum_solver()
-    real *8 eps,flux,eps_gmres,rres
-    integer numit,niter
-    real *8, allocatable :: errs(:)
-    complex *16, allocatable :: sigma(:),B(:,:),Bdotn(:)
-    real *8, allocatable :: AcycBrealintp(:,:), AcycBimagintp(:,:)
-    complex *16 alpha, fluxcheck
-
-    complex *16 ima
-    data ima/(0.0d0,1.0d0)/
-
-    ! if the number of sample points is too low, get a seg fault
-    igeomtype = 5 ! set to 4 for axisymmetric geometry
-    norder = 8 
-    npols = (norder+1)*(norder+2)/2
-    ifplot = 0
-    fname = 'torus.vtk'
-
-    ipars(1) = 6
-    if(igeomtype.eq.2) ipars(1) = 10
-    ipars(2) = ipars(1)*3
-    npatches = 2*ipars(1)*ipars(2)
-    
-    npts = npols*npatches
-    print *,"npts = ",npts
-
-    allocate(norders(npatches),ixyzs(npatches+1),iptype(npatches))
-    do i = 1,npatches
-        norders(i) = norder
-        ixyzs(i) = 1 + (i-1)*npols 
-        iptype(i) = 1
-    enddo
-    ixyzs(npatches+1) = npts+1
-
-    allocate(srccoefs(9,npts),srcvals(12,npts),surfdivf(npts))
-
-    call setup_geom_vacuum(igeomtype,norder,npatches,ipars,srcvals,srccoefs,&
-        ifplot,fname)
-    
-    allocate(mH(3,npts),mHcomps(1,2,npts),nxmH(3,npts))
-    call axi_surf_harm_field(npts,srcvals,mH,mHcomps)
-    ! open(13, file="torusmH.txt")
-    ! do i = 1,npts
-    !     do j = 1,3
-    !         write(13,*) mH(j,i)
-    !     enddo
-    ! enddo
-    ! close(13)
-
-    allocate(dmH(1,npts))
-    allocate(ffform(2,2,npts),dmHreal(1,npts),dmHimag(1,npts))
-    call get_first_fundamental_form(npatches,norders,ixyzs,iptype,npts,&
-        srccoefs,srcvals,ffform)
-    print *,ffform(1,1,2),ffform(1,2,2)
-    print *,ffform(2,1,2),ffform(2,2,2)
-    call get_surf_div(1,npatches,norders,ixyzs,iptype,npts,srccoefs,srcvals,&
-        real(mHcomps),dmHreal)
-    call get_surf_div(1,npatches,norders,ixyzs,iptype,npts,srccoefs,srcvals,&
-        aimag(mHcomps),dmHimag)
-    sum = 0
-    do i = 1,npts
-        dmH(1,i) = dmHreal(1,i) + ima*dmHimag(1,i)
-        sum = sum + abs(dmH(1,i))
-    enddo
-    print *,"dmH",sum
-
-    ! do i = 1,npts
-    !     nxmH(1,i) = srcvals(11,i)*mH(3,i) - srcvals(12,i)*mH(2,i) 
-    !     nxmH(2,i) = srcvals(12,i)*mH(1,i) - srcvals(10,i)*mH(3,i)
-    !     nxmH(3,i) = srcvals(10,i)*mH(2,i) - srcvals(11,i)*mH(1,i)
-    ! enddo
-    ! open(40,file="nxmHplusimH.txt")
-    ! do i = 1,npts
-    !     do j = 1,3
-    !         write(40,*) nxmH(j,i) + ima*mH(j,i)
-    !     enddo
-    ! enddo
-    ! close(40)
-
-    ! This is mH = phihat, used for testing. 
-    ! do i = 1,npts
-    !     mH(1,i) = -srcvals(2,i)
-    !     mH(2,i) = srcvals(1,i)
-    !     mH(3,i) = 0
-    ! enddo
-
-    ! ===================================== 
-    
-    ! m = 16
-    ! na = ipars(2)*m
-    ! nb = ipars(1)*m
-    ! allocate(avals(9,na),awts(na),auv(2,na),apatches(na))
-    ! allocate(auv(2,na)) ! why does gmres blow up if this is commented out?
-    ! allocate(bvals(9,nb),bwts(nb),buv(2,nb),bpatches(nb))
-    ! call get_ab_cycles_torusparam(npatches,norders,ixyzs,iptype,npts,srccoefs,&
-    !     srcvals,ipars,m,na,avals,awts,apatches,auv,nb,bvals,bwts,bpatches,buv)
-    ! open(41,file="torusavals.txt")
-    ! write(41,*) avals
-    ! close(41)
-    
-    ! allocate(mHrealinterp(3,nb),mHimaginterp(3,nb))    
-    ! call fun_surf_interp(3,npatches,norders,ixyzs,iptype,npts,real(mH),nb,&
-    !     bpatches,buv,mHrealinterp)
-    ! call fun_surf_interp(3,npatches,norders,ixyzs,iptype,npts,aimag(mH),nb,&
-    !     bpatches,buv,mHimaginterp)
-    ! open(14,file="torusmHrealinterpbcycle.txt")
-    ! write(14,*) mHrealinterp
-    ! close(14)
-    ! open(15,file="torusmHimaginterpbcycle.txt")
-    ! write(15,*) mHimaginterp
-    ! close(15)
-
-    ! =====================================
-
-    ! allocate(mHrealinterp(3,nb),mHimaginterp(3,nb))    
-    ! call fun_surf_interp(3,npatches,norders,ixyzs,iptype,npts,real(mH),nb,&
-    !     bpatches,buv,mHrealinterp)
-    ! call fun_surf_interp(3,npatches,norders,ixyzs,iptype,npts,aimag(mH),nb,&
-    !     bpatches,buv,mHimaginterp)
-    ! open(14,file="mHrealinterpbcycle.txt")
-    ! write(14,*) mHrealinterp
-    ! close(14)
-    ! open(15,file="mHimaginterpbcycle.txt")
-    ! write(15,*) mHimaginterp
-    ! close(15)
-
-    ! call test_axi_surf_harm_field(npatches,norders,ixyzs,iptype,npts,srccoefs,&
-    ! srcvals,real(mH),surfdivf,sum)
-    ! open(16, file='surfdivf.txt')
-    ! do i = 1,npts
-    !     write(16,*) surfdivf(i)
-    ! enddo
-    ! close(16)
-
-    ! ===========================================
-
-    eps = 0.51d-4
-    eps_gmres = 1d-8
-    flux = 0.3d0
-    numit = 200
-    niter = 0
-
-    allocate(errs(numit+1))
-    allocate(sigma(npts),B(3,npts))
-
-    call taylor_vaccuum_solver(npatches,norders,ixyzs,iptype,npts,&
-        srccoefs,srcvals,ipars,eps,numit,flux,eps_gmres,niter,&
-        errs,rres,sigma,alpha,B,fluxcheck)
-
-    open(16,file="sigma.txt")
-    do i = 1,npts
-        write(16,*) sigma(i)
-    enddo
-    close(16)
-
-    open(17,file="alpha.txt")
-    write(17,*) alpha
-    close(17)
-
-    open(18,file="B.txt")
-    do i = 1,npts
-        do j = 1,3
-            write(18,*) B(j,i)
-        enddo
-    enddo
-    close(18)
-
-    ! check that B . n = 0
-    allocate(Bdotn(npts))
-    do i = 1,npts
-        Bdotn(i) = 0
-        do j = 1,3
-            Bdotn(i) = Bdotn(i) + B(j,i)*srcvals(j+9,i)
-        enddo 
-    enddo
-    open(19,file="Bdotn.txt")
-    do i = 1,npts
-        write(19,*) Bdotn(i)
-    enddo
-    close(19)
-
-    ! check flux
-    print *,"A-cyc integral:",fluxcheck
-end program vacuum 
