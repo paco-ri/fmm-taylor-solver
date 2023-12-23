@@ -1,10 +1,8 @@
 # fmm-taylor-solver
 
-Compile using
+The solver can be compiled using the the makefile command `vacuum_example`, but paths need to be edited by the user. Assuming these paths are correct, use
 ```
-gfortran vacuum.f90 -o vacuum ($PATH1)/virtual-casing/src/magneto-static-routs.f90 ($PATH2)/superconductor-type1/src/surf_routs.f90 -L($FMMBIE_INSTALL_DIR) -lfmm3dbie -L($FMM_INSTALL_DIR) -lfmm3d
+make vacuum_example
+./vacuum_example
 ```
-where `($PATH1)`, `($PATH2)`, `($FMMBIE_INSTALL_DIR)`, and `($FMM_INSTALL_DIR)` are user-determined paths. Then run using
-```
-./vacuum
-```
+to run the solver. 
