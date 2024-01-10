@@ -924,8 +924,7 @@ subroutine taylor_vaccuum_solver(npatches,norders,ixyzs,iptype,npts,&
             alpha = (flux + AcycSnxgradSw)/(AcycSnxgradSD + AcycSmHnxcurlSmH)
             ! $OMP PARALLEL DO DEFAULT(SHARED)
             do i = 1,npts
-                sigma(i) = alpha*soln(i) + w(i) ! no paper edit
-                ! sigma(i) = alpha*soln(i) - w(i) ! new edit
+                sigma(i) = alpha*soln(i) - w(i)
             enddo
             ! $OMP END PARALLEL DO
 
@@ -966,6 +965,7 @@ subroutine taylor_vaccuum_solver(npatches,norders,ixyzs,iptype,npts,&
                     AcycSnxBintp(2,i)*avals(5,i) + &
                     AcycSnxBintp(3,i)*avals(6,i))
             enddo
+            print *,'fluxcheck',fluxcheck
             return 
         endif
     enddo

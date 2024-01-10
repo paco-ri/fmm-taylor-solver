@@ -142,6 +142,7 @@ subroutine setup_geom_vacuum(igeomtype, norder, npatches, ipars, srcvals, &
             umatr,srcvals,srccoefs)
     endif
       
+    ! fat torus
     if(igeomtype.eq.4) then
         done = 1
         pi = atan(done)*4
@@ -243,7 +244,7 @@ subroutine setup_geom_vacuum(igeomtype, norder, npatches, ipars, srcvals, &
          
         p1(1) = 0.5d0 ! 1.0d0
         p1(2) = 1.0d0 ! 1.75d0
-        p1(3) = 0.3d0 ! 0.25d0
+        p1(3) = 0.0d0 ! 0.3d0 ! 0.25d0
         p1(4) = 0.2d0
 
         p2(1) = 1.0d0
@@ -251,7 +252,7 @@ subroutine setup_geom_vacuum(igeomtype, norder, npatches, ipars, srcvals, &
         p2(3) = 1.0d0
         ! number of oscillations
         p4(1) = 0.0d0
-        p4(2) = 5.0d0
+        p4(2) = 2.0d0
 
         ptr1 => triaskel(1,1,1)
         ptr2 => p1(1)
@@ -267,7 +268,7 @@ subroutine setup_geom_vacuum(igeomtype, norder, npatches, ipars, srcvals, &
         call getgeominfo(npatches,xtri_geometry,ptr1,ptr2,ptr3,ptr4,npols,uvs,&
             umatr,srcvals,srccoefs)
     endif
-      
+
     return  
 end subroutine setup_geom_vacuum
 
@@ -284,7 +285,7 @@ subroutine xtri_wtorus_star_eval(itri, u, v, xyz, dxyzduv, triainfo, &
   ! itri - triangle number to map
   ! u,v - local uv coordinates on triangle itri
   ! triainfo - flat skeleton triangle info
-  ! radii - minor radius, major radius radius of toroidal oscillation,
+  ! radii - minor radius, major radius, radius of toroidal oscillation,
   !   radius of poloidal oscillation 
   ! scales - scaling for x,y,z components from the standard torus
   ! p4 - number of oscillations (must be an integer currently recast
@@ -341,7 +342,7 @@ subroutine xtri_wtorus_star_eval(itri, u, v, xyz, dxyzduv, triainfo, &
   dtdv = (y2-y0)
 
   drrds = -nosc*rwave*sin(nosc*s)
-  drrdt = -rminor*sin(t)
+  drrdt = rminor*(-sin(t)*(1+rwavep*cos(noscp*t))-cos(t)*rwavep*noscp*sin(noscp*t))
 
   dxds = a*drrds*cos(s) - a*rr*sin(s)
   dyds = b*drrds*sin(s) + b*rr*cos(s)

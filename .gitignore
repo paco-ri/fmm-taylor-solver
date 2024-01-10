@@ -1,10 +1,13 @@
 *
 !*/
 !*.*
+!makefile
 *.txt
 *.m
 *.asv
 *.dat
 *.mat
-makefile*
+*noblock*
+fort*
 *~
+summarytaylorstatealgo/
